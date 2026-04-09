@@ -6,27 +6,22 @@
 //
 
 import SwiftUI
-import SwiftData
 
 @main
 struct NexusApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
+    @StateObject private var appState = AppState()
+    @StateObject private var themeManager = ThemeManager()
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootView()
+                .environmentObject(appState)
+                .environmentObject(themeManager)
+                .frame(minWidth: 1100, minHeight: 700)
+                .preferredColorScheme(.dark)
         }
-        .modelContainer(sharedModelContainer)
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentMinSize)
+        .commands { CommandGroup(replacing: .newItem) {} }
     }
 }
