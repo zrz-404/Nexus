@@ -4,6 +4,7 @@ import SwiftUI
 // Rendered as a ZStack overlay in MainAppView — completely avoids NSPopover/XPC boundary
 struct WorldSwitcherPanel: View {
     @EnvironmentObject var appState: AppState
+    @EnvironmentObject var themeManager: ThemeManager
     @Binding var currentTheme: AppTheme
     let dismiss: () -> Void
 
@@ -48,11 +49,19 @@ struct WorldSwitcherPanel: View {
                                 appState.switchToWorld(world)
                                 dismiss()
                             },
+//                            onDelete: {
+//                                // Post to MainAppView which owns the .alert — stays in main process
+//                                NotificationCenter.default.post(
+//                                    name: .deleteWorldRequested,
+//                                    object: world.id
+//                                )
+//                                dismiss()
+//                            }
                             onDelete: {
-                                // Post to MainAppView which owns the .alert — stays in main process
+                                let id = world.id
                                 NotificationCenter.default.post(
                                     name: .deleteWorldRequested,
-                                    object: world.id
+                                    object: id
                                 )
                                 dismiss()
                             }
@@ -91,6 +100,7 @@ struct WorldSwitcherPanel: View {
                     ForEach(AppTheme.allCases, id: \.self) { theme in
                         ThemeChip(theme: theme, isSelected: currentTheme == theme) {
                             // Plain value write — no object reference crossing any boundary
+                            themeManager.set(theme)
                             currentTheme = theme
                         }
                     }
@@ -193,4 +203,8 @@ struct ThemeChip: View {
         .scaleEffect(isSelected ? 1.04 : 1)
         .animation(.spring(response: 0.22), value: isSelected)
     }
+}
+
+extension Notification.Name {
+    static let deleteWorldRequested = Notification.Name("deleteWorldRequested")
 }

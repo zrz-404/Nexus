@@ -12,11 +12,11 @@ struct TopBarView: View {
 
     var body: some View {
         ZStack {
-            GlassBackground(
-                tint: theme.glassTint,
-                opacity: theme.glassOpacity,
-                brightnessBoost: theme.brightnessBoost
-            )
+//            GlassBackground(
+//                tint: theme.glassTint,
+//                opacity: theme.glassOpacity,
+//                brightnessBoost: theme.brightnessBoost
+//            )
 
             HStack(spacing: 0) {
                 HStack(spacing: 6) {
@@ -40,6 +40,7 @@ struct TopBarView: View {
                         }
                     )
                 }
+                
                 .padding(.leading, 14)
 
                 Spacer()
@@ -109,6 +110,8 @@ struct TopBarView: View {
                 }
                 .padding(.trailing, 14)
             }
+            .frame(height: 44)
+            .padding(.horizontal, 4)
         }
         .frame(height: 50)
         .overlay(alignment: .bottom) {

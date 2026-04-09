@@ -30,6 +30,7 @@ struct FreeformCanvasView: View {
     @State private var zoom: CGFloat = 1.0
     @State private var showDocPicker = false
     @State private var selectedTileId: UUID? = nil
+    @State private var isDraggingTile = false
 
     var body: some View {
         ZStack {
@@ -61,10 +62,10 @@ struct FreeformCanvasView: View {
                     onRemove: { removeTile(tile.id) }
                 )
                 .offset(
-                    x: tile.x * zoom + panOffset.width,
-                    y: tile.y * zoom + panOffset.height
-                )
-                .scaleEffect(zoom, anchor: .topLeading)
+                            x: tile.x * zoom + panOffset.width,
+                            y: tile.y * zoom + panOffset.height
+                        )
+                        .scaleEffect(zoom, anchor: .topLeading)
             }
 
             // Bottom toolbar
@@ -89,6 +90,7 @@ struct FreeformCanvasView: View {
                 .padding(.bottom, 14)
             }
         }
+        .coordinateSpace(name: "canvasSpace")
         .onAppear { loadTiles() }
         .sheet(isPresented: $showDocPicker) {
             CanvasDocPickerSheet { doc in addTile(for: doc) }
@@ -198,7 +200,7 @@ struct CanvasTileView: View {
         .onTapGesture { onSelect() }
         .onHover { hovered = $0 }
         .gesture(
-            DragGesture(coordinateSpace: .global)
+            DragGesture(minimumDistance: 2, coordinateSpace: .named("canvasSpace"))
                 .onChanged { v in
                     if dragStart == .zero { dragStart = CGPoint(x: tile.x, y: tile.y) }
                     tile.x = dragStart.x + v.translation.width

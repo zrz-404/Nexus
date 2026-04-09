@@ -1,10 +1,3 @@
-//
-//  SidebarView.swift
-//  Nexus
-//
-//  Created by José Roseiro on 09/04/2026.
-//
-
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -12,6 +5,7 @@ struct SidebarView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
     @State private var search = ""
+    @State private var showFilterMenu = false
 
     private var theme: AppTheme { themeManager.current }
 
@@ -38,10 +32,20 @@ struct SidebarView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                SidebarIconBtn(icon: "slider.horizontal.3") {}
+                SidebarIconBtn(icon: "slider.horizontal.3") {
+                    withAnimation(.spring(response: 0.25)) { showFilterMenu.toggle() }
+                }
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 11)
+            .overlay(alignment: .topTrailing) {
+                if showFilterMenu {
+                    SidebarFilterMenu(dismiss: { showFilterMenu = false })
+                        .offset(x: 0, y: 44)
+                        .zIndex(100)
+                }
+            }
+            .zIndex(showFilterMenu ? 100 : 0)
 
             // Search
             HStack(spacing: 7) {
@@ -66,7 +70,7 @@ struct SidebarView: View {
             )
             .padding(.horizontal, 10).padding(.bottom, 8)
 
-            // File tree — List gives free drag reorder
+            // File tree
             List {
                 Section {
                     ForEach(search.isEmpty ? appState.documents.filter { $0.parentId == nil } : rootDocuments) { doc in
@@ -87,7 +91,6 @@ struct SidebarView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(Color.clear)
-//            .environment(\.editMode, .constant(.active)) // enables drag reorder always
 
             Spacer(minLength: 0)
 
@@ -141,11 +144,8 @@ struct SidebarRow: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered in
-            withAnimation(.easeInOut(duration: 0.1)) {
-                hovered = isHovered
-            }
+            withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered }
         }
-        // Right-click delete
         .contextMenu {
             Button(role: .destructive) {
                 appState.deleteDocument(id: document.id)
@@ -158,18 +158,15 @@ struct SidebarRow: View {
                 Label("Open", systemImage: "arrow.up.right.square")
             }
         }
-        // Drag to workspace
-        //        .onDrag {
-        //            NSItemProvider(object: document.id.uuidString as NSString)
         .draggable(document.id.uuidString)
-        }
     }
-
+}
 
 // MARK: - Icon button
 struct SidebarIconBtn: View {
     @EnvironmentObject var themeManager: ThemeManager
-    let icon: String; let action: () -> Void
+    let icon: String
+    let action: () -> Void
     @State private var hovered = false
     private var theme: AppTheme { themeManager.current }
 
@@ -186,5 +183,79 @@ struct SidebarIconBtn: View {
         }
         .buttonStyle(.plain)
         .onHover { hovered = $0 }
+    }
+}
+
+// MARK: - Filter menu
+struct SidebarFilterMenu: View {
+    @EnvironmentObject var themeManager: ThemeManager
+    let dismiss: () -> Void
+    @State private var sortMode: String = "Manual order"
+    private var theme: AppTheme { themeManager.current }
+
+    let sortOptions = ["Manual order", "Newest first", "Oldest first", "Alphabetical"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            menuSection("DOCUMENT TYPES") {
+                ForEach(DocumentType.allCases) { type in
+                    menuRow(icon: type.icon, label: type.rawValue + "s")
+                }
+            }
+            Divider().background(theme.border)
+            menuSection("SORT BY") {
+                ForEach(sortOptions, id: \.self) { opt in
+                    Button {
+                        sortMode = opt
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: sortMode == opt ? "checkmark" : "")
+                                .font(.system(size: 10))
+                                .foregroundColor(theme.accent)
+                                .frame(width: 12)
+                            Text(opt)
+                                .font(.system(size: 11))
+                                .foregroundColor(theme.textPrimary)
+                            Spacer()
+                        }
+                        .padding(.horizontal, 14).padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(width: 200)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color(red: 0.09, green: 0.08, blue: 0.12))
+                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(theme.border, lineWidth: 1))
+        )
+        .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 6)
+    }
+
+    private func menuSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(title)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundColor(theme.textTertiary)
+                .tracking(0.7)
+                .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 4)
+            content()
+        }
+    }
+
+    private func menuRow(icon: String, label: String) -> some View {
+        Button { } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 11))
+                    .foregroundColor(theme.textSecondary).frame(width: 16)
+                Text(label).font(.system(size: 11)).foregroundColor(theme.textPrimary)
+                Spacer()
+            }
+            .padding(.horizontal, 14).padding(.vertical, 6)
+        }
+        .buttonStyle(.plain)
     }
 }
