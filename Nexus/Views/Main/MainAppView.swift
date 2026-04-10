@@ -6,6 +6,9 @@ struct MainAppView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
     @State private var showWorldSwitcher = false
+    @State private var showDeleteAlert = false
+    @State private var worldToDelete: UUID? = nil
+
     private var theme: AppTheme { themeManager.current }
 
     var body: some View {
@@ -15,28 +18,34 @@ struct MainAppView: View {
                     SidebarView()
                         .frame(width: 216)
                         .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(theme.glassTint.opacity(theme.isDarkTheme ? 0.08 : 0.12))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(theme.border, lineWidth: 1)
-                                )
+                            GlassBackground(
+                                tint: theme.glassTint,
+                                opacity: theme.glassOpacity + 0.08,
+                                brightnessBoost: theme.brightnessBoost
+                            )
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(theme.border, lineWidth: 1)
+                        )
                         .transition(.move(edge: .leading).combined(with: .opacity))
                 }
 
                 VStack(spacing: 8) {
                     TopBarView(showWorldSwitcher: $showWorldSwitcher)
                         .background(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .fill(theme.glassTint.opacity(theme.isDarkTheme ? 0.08 : 0.12))
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                        .stroke(theme.border, lineWidth: 1)
-                                )
+                            GlassBackground(
+                                tint: theme.glassTint,
+                                opacity: theme.glassOpacity + 0.08,
+                                brightnessBoost: theme.brightnessBoost
+                            )
                         )
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(theme.border, lineWidth: 1)
+                        )
 
                     ZStack {
                         switch appState.currentTab {
@@ -66,6 +75,7 @@ struct MainAppView: View {
                         }
                     }
                 )
+                .environmentObject(appState)
                 .environmentObject(themeManager)
                 .padding(.top, 58)
                 .padding(.trailing, 14)
@@ -87,7 +97,4 @@ struct MainAppView: View {
             }
         }
     }
-
-    @State private var showDeleteAlert = false
-    @State private var worldToDelete: UUID? = nil
 }
