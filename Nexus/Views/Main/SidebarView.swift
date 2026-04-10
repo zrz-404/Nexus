@@ -1,19 +1,16 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Sidebar root
 struct SidebarView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
     @State private var search = ""
     @State private var showFilterMenu = false
+    @State private var isCreatingFolder = false
+    @State private var newFolderName = ""
 
     private var theme: AppTheme { themeManager.current }
-
-    var rootDocuments: [StudyDocument] {
-        appState.documents
-            .filter { $0.parentId == nil }
-            .filter { search.isEmpty || $0.title.localizedCaseInsensitiveContains(search) }
-    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -32,6 +29,9 @@ struct SidebarView: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                SidebarIconBtn(icon: "folder.badge.plus") {
+                    isCreatingFolder = true
+                }
                 SidebarIconBtn(icon: "slider.horizontal.3") {
                     withAnimation(.spring(response: 0.25)) { showFilterMenu.toggle() }
                 }
@@ -46,6 +46,37 @@ struct SidebarView: View {
                 }
             }
             .zIndex(showFilterMenu ? 100 : 0)
+
+            // Inline new folder creation
+            if isCreatingFolder {
+                HStack(spacing: 6) {
+                    Image(systemName: "folder")
+                        .font(.system(size: 10))
+                        .foregroundColor(theme.accent)
+                        .frame(width: 14)
+                    TextField("Folder name", text: $newFolderName)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundColor(theme.textPrimary)
+                        .onSubmit {
+                            let name = newFolderName.trimmingCharacters(in: .whitespaces)
+                            if !name.isEmpty { appState.createFolder(name: name) }
+                            newFolderName = ""
+                            isCreatingFolder = false
+                        }
+                    Button {
+                        newFolderName = ""
+                        isCreatingFolder = false
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 9))
+                            .foregroundColor(theme.textTertiary)
+                    }.buttonStyle(.plain)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(theme.accentSoft.opacity(0.5))
+            }
 
             // Search
             HStack(spacing: 7) {
@@ -71,30 +102,66 @@ struct SidebarView: View {
             .padding(.horizontal, 10).padding(.bottom, 8)
 
             // File tree
-            List {
-                Section {
-                    ForEach(search.isEmpty ? appState.documents.filter { $0.parentId == nil } : rootDocuments) { doc in
-                        SidebarRow(document: doc)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 1, leading: 6, bottom: 1, trailing: 6))
+            if !search.isEmpty {
+                // Flat search results
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        let results = appState.documents.filter {
+                            $0.title.localizedCaseInsensitiveContains(search)
+                        }
+                        if results.isEmpty {
+                            Text("No results")
+                                .font(.system(size: 11))
+                                .foregroundColor(theme.textTertiary)
+                                .padding(.top, 20)
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            ForEach(results) { doc in
+                                SidebarDocRow(document: doc, depth: 0)
+                                    .listRowBackground(Color.clear)
+                            }
+                        }
                     }
-                    .onMove(perform: appState.moveDocuments)
-                } header: {
-                    Text("DOCUMENTS")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundColor(theme.textTertiary)
-                        .tracking(0.8)
-                        .padding(.leading, 2)
+                    .padding(.vertical, 4)
+                }
+            } else {
+                // Full tree
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        // Root-level folders
+                        ForEach(appState.subfolders(of: nil)) { folder in
+                            SidebarFolderRow(folder: folder, depth: 0)
+                        }
+                        // Root-level documents (no folder)
+                        let rootDocs = appState.documents(inFolder: nil)
+                        if !rootDocs.isEmpty || appState.subfolders(of: nil).isEmpty {
+                            if !appState.subfolders(of: nil).isEmpty && !rootDocs.isEmpty {
+                                // Divider between folders and loose docs
+                                Rectangle()
+                                    .fill(theme.border.opacity(0.5))
+                                    .frame(height: 1)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 4)
+                            }
+                            ForEach(rootDocs) { doc in
+                                SidebarDocRow(document: doc, depth: 0)
+                            }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    // Accept drops of doc IDs to move to root
+                    .dropDestination(for: String.self) { items, _ in
+                        guard let idStr = items.first,
+                              let id = UUID(uuidString: idStr) else { return false }
+                        appState.moveDocument(id, toFolder: nil)
+                        return true
+                    }
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
 
             Spacer(minLength: 0)
 
-            // New document
+            // New document button
             Button {
                 appState.createDocument(title: "Untitled Card", type: .card)
             } label: {
@@ -114,32 +181,177 @@ struct SidebarView: View {
     }
 }
 
-// MARK: - Row
-struct SidebarRow: View {
+// MARK: - Folder row (recursive)
+struct SidebarFolderRow: View {
+    @EnvironmentObject var appState: AppState
+    @EnvironmentObject var themeManager: ThemeManager
+    let folder: StudyFolder
+    let depth: Int
+
+    @State private var hovered = false
+    @State private var isRenaming = false
+    @State private var renameDraft = ""
+    @State private var isDropTarget = false
+
+    private var theme: AppTheme { themeManager.current }
+    private var indent: CGFloat { CGFloat(depth) * 14 + 8 }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Folder header row
+            HStack(spacing: 6) {
+                // Expand/collapse chevron
+                Image(systemName: folder.isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(theme.textTertiary)
+                    .frame(width: 10)
+                    .onTapGesture { appState.toggleFolderExpanded(id: folder.id) }
+
+                Image(systemName: folder.isExpanded ? "folder.fill" : "folder")
+                    .font(.system(size: 10))
+                    .foregroundColor(theme.accent)
+                    .frame(width: 14)
+
+                if isRenaming {
+                    TextField("Folder name", text: $renameDraft)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 11))
+                        .foregroundColor(theme.textPrimary)
+                        .onSubmit {
+                            let name = renameDraft.trimmingCharacters(in: .whitespaces)
+                            if !name.isEmpty { appState.renameFolder(id: folder.id, name: name) }
+                            isRenaming = false
+                        }
+                } else {
+                    Text(folder.name)
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(theme.textPrimary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                // + button on hover
+                if hovered && !isRenaming {
+                    Button {
+                        appState.createDocument(title: "Untitled Card", type: .card, folderId: folder.id)
+                        if !folder.isExpanded { appState.toggleFolderExpanded(id: folder.id) }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.system(size: 9))
+                            .foregroundColor(theme.textSecondary)
+                            .frame(width: 16, height: 16)
+                            .background(RoundedRectangle(cornerRadius: 4).fill(theme.panelSoft))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.leading, indent)
+            .padding(.trailing, 8)
+            .padding(.vertical, 5)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(
+                        isDropTarget
+                            ? theme.accentSoft
+                            : (hovered ? theme.panelSoft : Color.clear)
+                    )
+                    .overlay(
+                        isDropTarget
+                            ? RoundedRectangle(cornerRadius: 6).stroke(theme.accent.opacity(0.4), lineWidth: 1)
+                            : nil
+                    )
+                    .padding(.horizontal, 4)
+            )
+            .onHover { isHovered in
+                withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { appState.toggleFolderExpanded(id: folder.id) }
+            .contextMenu {
+                Button { isRenaming = true; renameDraft = folder.name } label: {
+                    Label("Rename", systemImage: "pencil")
+                }
+                Button {
+                    appState.createDocument(title: "Untitled Card", type: .card, folderId: folder.id)
+                    if !folder.isExpanded { appState.toggleFolderExpanded(id: folder.id) }
+                } label: {
+                    Label("New Document Inside", systemImage: "plus")
+                }
+                Button {
+                    appState.createFolder(name: "New Folder")
+                    // Note: ideally set parentId = folder.id — simplified for now
+                } label: {
+                    Label("New Subfolder", systemImage: "folder.badge.plus")
+                }
+                Divider()
+                Button(role: .destructive) {
+                    appState.deleteFolder(id: folder.id)
+                } label: {
+                    Label("Delete Folder", systemImage: "trash")
+                }
+            }
+            // Accept drops of document IDs
+            .dropDestination(for: String.self) { items, _ in
+                guard let idStr = items.first, let id = UUID(uuidString: idStr) else { return false }
+                appState.moveDocument(id, toFolder: folder.id)
+                if !folder.isExpanded { appState.toggleFolderExpanded(id: folder.id) }
+                return true
+            } isTargeted: { targeted in
+                withAnimation(.easeInOut(duration: 0.15)) { isDropTarget = targeted }
+            }
+
+            // Children (when expanded)
+            if folder.isExpanded {
+                // Subfolders
+                ForEach(appState.subfolders(of: folder.id)) { sub in
+                    SidebarFolderRow(folder: sub, depth: depth + 1)
+                }
+                // Documents in this folder
+                ForEach(appState.documents(inFolder: folder.id)) { doc in
+                    SidebarDocRow(document: doc, depth: depth + 1)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Document row
+struct SidebarDocRow: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
     let document: StudyDocument
+    let depth: Int
+
     @State private var hovered = false
     private var theme: AppTheme { themeManager.current }
+    private var indent: CGFloat { CGFloat(depth) * 14 + 8 }
     var docType: DocumentType { DocumentType(rawValue: document.type) ?? .card }
 
     var body: some View {
         Button { appState.openDocument(document) } label: {
             HStack(spacing: 7) {
+                // Indent spacer
+                Color.clear.frame(width: indent, height: 1)
+
                 Image(systemName: docType.icon)
                     .font(.system(size: 10))
                     .foregroundColor(theme.textSecondary)
                     .frame(width: 14)
+
                 Text(document.title)
                     .font(.system(size: 11))
                     .foregroundColor(theme.textPrimary)
                     .lineLimit(1)
+
                 Spacer()
             }
-            .padding(.horizontal, 8).padding(.vertical, 5)
+            .padding(.trailing, 8)
+            .padding(.vertical, 5)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .fill(hovered ? theme.panelSoft : Color.clear)
+                    .padding(.horizontal, 4)
             )
         }
         .buttonStyle(.plain)
@@ -147,17 +359,18 @@ struct SidebarRow: View {
             withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered }
         }
         .contextMenu {
-            Button(role: .destructive) {
-                appState.deleteDocument(id: document.id)
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
             Button {
                 appState.openDocument(document)
             } label: {
                 Label("Open", systemImage: "arrow.up.right.square")
             }
+            Button(role: .destructive) {
+                appState.deleteDocument(id: document.id)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
         }
+        // Drag to workspace: carry doc UUID string
         .draggable(document.id.uuidString)
     }
 }

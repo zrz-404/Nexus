@@ -290,7 +290,7 @@ struct WikiLandingView: View {
                     // Cards grid
                     VStack(alignment: .leading, spacing: 12) {
                         if !search.isEmpty {
-                            Text("Results for "\(search)"")
+                            Text("Results for: \(search)")
                                 .font(.system(size: 11))
                                 .foregroundColor(.black.opacity(0.4))
                                 .padding(.horizontal, 24)

@@ -7,6 +7,8 @@
 
 import SwiftUI
 
+import SwiftUI
+
 // MARK: - Navigation
 enum AppScreen { case userCreation, worldCreation, genrePicker, radioStation, main }
 
@@ -30,6 +32,15 @@ struct StudyWorld: Codable, Identifiable, Equatable {
     var id: UUID = UUID()
     var name: String
     var genre: String
+    var createdAt: Date = Date()
+}
+
+// MARK: - Folder
+struct StudyFolder: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var name: String
+    var parentId: UUID? = nil
+    var isExpanded: Bool = true
     var createdAt: Date = Date()
 }
 
@@ -83,7 +94,8 @@ struct StudyDocument: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var title: String
     var type: String
-    var parentId: UUID? = nil
+    var parentId: UUID? = nil        // parent folder id
+    var folderId: UUID? = nil        // explicit folder membership
     var content: String = ""
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
