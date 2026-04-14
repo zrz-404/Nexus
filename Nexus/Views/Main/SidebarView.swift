@@ -1,3 +1,10 @@
+//
+//  SidebarView.swift
+//  Nexus - Phase 5
+//
+//  Updated with per-world document scoping
+//
+
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -23,10 +30,15 @@ struct SidebarView: View {
                             .font(.system(size: 11, weight: .bold))
                             .foregroundColor(theme.textPrimary)
                     }
-                    Text(world.name)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(theme.textPrimary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(world.name)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(theme.textPrimary)
+                            .lineLimit(1)
+                        Text("\(appState.currentWorldDocuments.count) documents")
+                            .font(.system(size: 10))
+                            .foregroundColor(theme.textTertiary)
+                    }
                 }
                 Spacer()
                 SidebarIconBtn(icon: "folder.badge.plus") {
@@ -101,12 +113,12 @@ struct SidebarView: View {
             )
             .padding(.horizontal, 10).padding(.bottom, 8)
 
-            // File tree
+            // File tree - now scoped to current world
             if !search.isEmpty {
-                // Flat search results
+                // Flat search results (filtered by current world)
                 ScrollView {
                     LazyVStack(spacing: 0) {
-                        let results = appState.documents.filter {
+                        let results = appState.currentWorldDocuments.filter {
                             $0.title.localizedCaseInsensitiveContains(search)
                         }
                         if results.isEmpty {
@@ -125,18 +137,17 @@ struct SidebarView: View {
                     .padding(.vertical, 4)
                 }
             } else {
-                // Full tree
+                // Full tree (scoped to current world)
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
-                        // Root-level folders
+                        // Root-level folders for current world
                         ForEach(appState.subfolders(of: nil)) { folder in
                             SidebarFolderRow(folder: folder, depth: 0)
                         }
-                        // Root-level documents (no folder)
+                        // Root-level documents (no folder, current world only)
                         let rootDocs = appState.documents(inFolder: nil)
                         if !rootDocs.isEmpty || appState.subfolders(of: nil).isEmpty {
                             if !appState.subfolders(of: nil).isEmpty && !rootDocs.isEmpty {
-                                // Divider between folders and loose docs
                                 Rectangle()
                                     .fill(theme.border.opacity(0.5))
                                     .frame(height: 1)
@@ -149,7 +160,6 @@ struct SidebarView: View {
                         }
                     }
                     .padding(.vertical, 4)
-                    // Accept drops of doc IDs to move to root
                     .dropDestination(for: String.self) { items, _ in
                         guard let idStr = items.first,
                               let id = UUID(uuidString: idStr) else { return false }
@@ -231,85 +241,67 @@ struct SidebarFolderRow: View {
 
                 Spacer()
 
-                // + button on hover
-                if hovered && !isRenaming {
+                // Add subfolder button (visible on hover)
+                if hovered {
                     Button {
-                        appState.createDocument(title: "Untitled Card", type: .card, folderId: folder.id)
-                        if !folder.isExpanded { appState.toggleFolderExpanded(id: folder.id) }
+                        appState.createFolder(name: "New Folder", parentId: folder.id)
                     } label: {
                         Image(systemName: "plus")
                             .font(.system(size: 9))
-                            .foregroundColor(theme.textSecondary)
-                            .frame(width: 16, height: 16)
-                            .background(RoundedRectangle(cornerRadius: 4).fill(theme.panelSoft))
+                            .foregroundColor(theme.textTertiary)
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.leading, indent)
-            .padding(.trailing, 8)
+            .padding(.trailing, 10)
             .padding(.vertical, 5)
             .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(
-                        isDropTarget
-                            ? theme.accentSoft
-                            : (hovered ? theme.panelSoft : Color.clear)
-                    )
-                    .overlay(
-                        isDropTarget
-                            ? RoundedRectangle(cornerRadius: 6).stroke(theme.accent.opacity(0.4), lineWidth: 1)
-                            : nil
-                    )
-                    .padding(.horizontal, 4)
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(hovered ? theme.panelSoft : Color.clear)
             )
-            .onHover { isHovered in
-                withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered }
-            }
-            .contentShape(Rectangle())
-            .onTapGesture { appState.toggleFolderExpanded(id: folder.id) }
+            .padding(.horizontal, 6)
+            .onHover { hovered = $0 }
             .contextMenu {
-                Button { isRenaming = true; renameDraft = folder.name } label: {
-                    Label("Rename", systemImage: "pencil")
+                Button("Rename") {
+                    renameDraft = folder.name
+                    isRenaming = true
                 }
-                Button {
-                    appState.createDocument(title: "Untitled Card", type: .card, folderId: folder.id)
-                    if !folder.isExpanded { appState.toggleFolderExpanded(id: folder.id) }
-                } label: {
-                    Label("New Document Inside", systemImage: "plus")
-                }
-                Button {
-                    appState.createFolder(name: "New Folder")
-                    // Note: ideally set parentId = folder.id — simplified for now
-                } label: {
-                    Label("New Subfolder", systemImage: "folder.badge.plus")
+                Button("New Subfolder") {
+                    appState.createFolder(name: "New Folder", parentId: folder.id)
                 }
                 Divider()
-                Button(role: .destructive) {
+                Button("Delete", role: .destructive) {
                     appState.deleteFolder(id: folder.id)
-                } label: {
-                    Label("Delete Folder", systemImage: "trash")
                 }
             }
-            // Accept drops of document IDs
             .dropDestination(for: String.self) { items, _ in
-                guard let idStr = items.first, let id = UUID(uuidString: idStr) else { return false }
+                guard let idStr = items.first,
+                      let id = UUID(uuidString: idStr) else { return false }
                 appState.moveDocument(id, toFolder: folder.id)
-                if !folder.isExpanded { appState.toggleFolderExpanded(id: folder.id) }
                 return true
             } isTargeted: { targeted in
-                withAnimation(.easeInOut(duration: 0.15)) { isDropTarget = targeted }
+                isDropTarget = targeted
             }
+            .overlay(
+                RoundedRectangle(cornerRadius: 5)
+                    .stroke(theme.accent.opacity(0.5), lineWidth: isDropTarget ? 1.5 : 0)
+                    .padding(.horizontal, 6)
+            )
 
-            // Children (when expanded)
+            // Children (if expanded)
             if folder.isExpanded {
-                // Subfolders
-                ForEach(appState.subfolders(of: folder.id)) { sub in
-                    SidebarFolderRow(folder: sub, depth: depth + 1)
+                // Subfolders (recursive)
+                ForEach(appState.subfolders(of: folder.id)) { subfolder in
+                    SidebarFolderRow(folder: subfolder, depth: depth + 1)
                 }
+                
                 // Documents in this folder
-                ForEach(appState.documents(inFolder: folder.id)) { doc in
-                    SidebarDocRow(document: doc, depth: depth + 1)
+                let folderDocs = appState.documents(inFolder: folder.id)
+                if !folderDocs.isEmpty {
+                    ForEach(folderDocs) { doc in
+                        SidebarDocRow(document: doc, depth: depth + 1)
+                    }
                 }
             }
         }
@@ -324,74 +316,112 @@ struct SidebarDocRow: View {
     let depth: Int
 
     @State private var hovered = false
+    @State private var isDragging = false
+
     private var theme: AppTheme { themeManager.current }
     private var indent: CGFloat { CGFloat(depth) * 14 + 8 }
-    var docType: DocumentType { DocumentType(rawValue: document.type) ?? .card }
+    var dtype: DocumentType { DocumentType(rawValue: document.type) ?? .card }
+    
+    var isOpen: Bool {
+        appState.openDocuments.contains { $0.id == document.id }
+    }
 
     var body: some View {
-        Button { appState.openDocument(document) } label: {
-            HStack(spacing: 7) {
-                // Indent spacer
-                Color.clear.frame(width: indent, height: 1)
+        HStack(spacing: 6) {
+            Image(systemName: dtype.icon)
+                .font(.system(size: 10))
+                .foregroundColor(isOpen ? theme.accent : theme.textTertiary)
+                .frame(width: 14)
 
-                Image(systemName: docType.icon)
-                    .font(.system(size: 10))
-                    .foregroundColor(theme.textSecondary)
-                    .frame(width: 14)
+            Text(document.title)
+                .font(.system(size: 11))
+                .foregroundColor(isOpen ? theme.accent : theme.textPrimary)
+                .lineLimit(1)
 
-                Text(document.title)
-                    .font(.system(size: 11))
-                    .foregroundColor(theme.textPrimary)
-                    .lineLimit(1)
-
-                Spacer()
+            Spacer()
+            
+            // Open indicator
+            if isOpen {
+                Circle()
+                    .fill(theme.accent)
+                    .frame(width: 6, height: 6)
             }
-            .padding(.trailing, 8)
-            .padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6, style: .continuous)
-                    .fill(hovered ? theme.panelSoft : Color.clear)
-                    .padding(.horizontal, 4)
-            )
         }
-        .buttonStyle(.plain)
-        .onHover { isHovered in
-            withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered }
+        .padding(.leading, indent + 16) // Extra indent for doc under folder
+        .padding(.trailing, 10)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: 5)
+                .fill(hovered ? theme.panelSoft : Color.clear)
+        )
+        .padding(.horizontal, 6)
+        .onHover { hovered = $0 }
+        .onTapGesture {
+            appState.openDocument(document)
         }
         .contextMenu {
-            Button {
+            Button("Open") {
                 appState.openDocument(document)
-            } label: {
-                Label("Open", systemImage: "arrow.up.right.square")
             }
-            Button(role: .destructive) {
+            
+            if document.type == DocumentType.card.rawValue {
+                Button("Study in Echo") {
+                    appState.openDocument(document)
+                    appState.currentTab = .echo
+                }
+            }
+            
+            Divider()
+            
+            Button("Rename") {
+                // TODO: Implement rename
+            }
+            
+            Button("Duplicate") {
+                let newDoc = StudyDocument(
+                    worldId: document.worldId,
+                    title: "\(document.title) Copy",
+                    type: document.type,
+                    folderId: document.folderId,
+                    content: document.content
+                )
+                appState.documents.append(newDoc)
+                appState.persistDocuments()
+            }
+            
+            Divider()
+            
+            Button("Delete", role: .destructive) {
                 appState.deleteDocument(id: document.id)
-            } label: {
-                Label("Delete", systemImage: "trash")
             }
         }
-        // Drag to workspace: carry doc UUID string
-        .draggable(document.id.uuidString)
+        .draggable(document.id.uuidString) {
+            HStack {
+                Image(systemName: dtype.icon)
+                Text(document.title)
+            }
+            .padding(8)
+            .background(theme.panel)
+            .cornerRadius(8)
+        }
     }
 }
 
-// MARK: - Icon button
+// MARK: - Sidebar icon button
 struct SidebarIconBtn: View {
-    @EnvironmentObject var themeManager: ThemeManager
     let icon: String
     let action: () -> Void
     @State private var hovered = false
-    private var theme: AppTheme { themeManager.current }
 
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 11))
-                .foregroundColor(theme.textSecondary)
+                .font(.system(size: 12))
+                .foregroundColor(hovered ? .white : .white.opacity(0.6))
                 .frame(width: 24, height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .fill(hovered ? theme.panelSoft : Color.clear)
+                    RoundedRectangle(cornerRadius: 5)
+                        .fill(hovered ? Color.white.opacity(0.1) : Color.clear)
                 )
         }
         .buttonStyle(.plain)
@@ -401,74 +431,80 @@ struct SidebarIconBtn: View {
 
 // MARK: - Filter menu
 struct SidebarFilterMenu: View {
+    @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
     let dismiss: () -> Void
-    @State private var sortMode: String = "Manual order"
+    
     private var theme: AppTheme { themeManager.current }
 
-    let sortOptions = ["Manual order", "Newest first", "Oldest first", "Alphabetical"]
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            FilterMenuItem(icon: "arrow.up.arrow.down", label: "Sort by Name") {
+                // TODO: Implement sort
+                dismiss()
+            }
+            FilterMenuItem(icon: "calendar", label: "Sort by Date") {
+                // TODO: Implement sort
+                dismiss()
+            }
+            Divider().padding(.vertical, 4)
+            FilterMenuItem(icon: "eye", label: "Show All") {
+                dismiss()
+            }
+            FilterMenuItem(icon: "doc", label: "Show Documents Only") {
+                dismiss()
+            }
+            FilterMenuItem(icon: "folder", label: "Show Folders Only") {
+                dismiss()
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(theme.panel)
+                .overlay(RoundedRectangle(cornerRadius: 10).stroke(theme.border, lineWidth: 1))
+                .shadow(color: .black.opacity(0.2), radius: 10, x: 0, y: 5)
+        )
+        .frame(width: 180)
+    }
+}
+
+struct FilterMenuItem: View {
+    let icon: String
+    let label: String
+    let action: () -> Void
+    
+    @State private var hovered = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            menuSection("DOCUMENT TYPES") {
-                ForEach(DocumentType.allCases) { type in
-                    menuRow(icon: type.icon, label: type.rawValue + "s")
-                }
-            }
-            Divider().background(theme.border)
-            menuSection("SORT BY") {
-                ForEach(sortOptions, id: \.self) { opt in
-                    Button {
-                        sortMode = opt
-                        dismiss()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: sortMode == opt ? "checkmark" : "")
-                                .font(.system(size: 10))
-                                .foregroundColor(theme.accent)
-                                .frame(width: 12)
-                            Text(opt)
-                                .font(.system(size: 11))
-                                .foregroundColor(theme.textPrimary)
-                            Spacer()
-                        }
-                        .padding(.horizontal, 14).padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-        .frame(width: 200)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color(red: 0.09, green: 0.08, blue: 0.12))
-                .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(theme.border, lineWidth: 1))
-        )
-        .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 6)
-    }
-
-    private func menuSection<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(title)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundColor(theme.textTertiary)
-                .tracking(0.7)
-                .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 4)
-            content()
-        }
-    }
-
-    private func menuRow(icon: String, label: String) -> some View {
-        Button { } label: {
+        Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: icon).font(.system(size: 11))
-                    .foregroundColor(theme.textSecondary).frame(width: 16)
-                Text(label).font(.system(size: 11)).foregroundColor(theme.textPrimary)
+                Image(systemName: icon)
+                    .font(.system(size: 11))
+                    .frame(width: 16)
+                Text(label)
+                    .font(.system(size: 12))
                 Spacer()
             }
-            .padding(.horizontal, 14).padding(.vertical, 6)
+            .foregroundColor(hovered ? .white : .white.opacity(0.8))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 5)
+                    .fill(hovered ? Color.white.opacity(0.1) : Color.clear)
+            )
         }
         .buttonStyle(.plain)
+        .onHover { hovered = $0 }
+    }
+}
+
+// MARK: - Preview
+struct SidebarView_Previews: PreviewProvider {
+    static var previews: some View {
+        SidebarView()
+            .environmentObject(AppState())
+            .environmentObject(ThemeManager())
+            .frame(width: 250)
     }
 }

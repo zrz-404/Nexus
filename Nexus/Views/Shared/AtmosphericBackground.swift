@@ -1,42 +1,36 @@
+//
+//  AtmosphericBackground.swift
+//  Nexus - Phase 5
+//
+
 import SwiftUI
 
-struct AtmosphericBackground: View {
-    @EnvironmentObject var themeManager: ThemeManager
-
+struct AtmosphericBackgroundView: View {
+    let accentColor: Color
+    
     var body: some View {
-        ZStack {
-            VisualEffectView(material: .underWindowBackground, blendingMode: .behindWindow)
-                .ignoresSafeArea()
-
-            Rectangle()
-                .fill(themeManager.current.glassTint.opacity(themeManager.current.glassOpacity * 0.4))
-                .ignoresSafeArea()
+        GeometryReader { geometry in
+            ZStack {
+                // Deep space background
+                Color.black
+                
+                // Gradient overlay
+                RadialGradient(
+                    colors: [
+                        accentColor.opacity(0.15),
+                        Color.black.opacity(0.8),
+                        Color.black
+                    ],
+                    center: .topTrailing,
+                    startRadius: 0,
+                    endRadius: geometry.size.height * 0.8
+                )
+                
+                // Subtle noise texture
+                Color.white.opacity(0.02)
+                    .blendMode(.overlay)
+            }
         }
-    }
-}
-
-struct RootView: View {
-    @EnvironmentObject var appState: AppState
-
-    var body: some View {
-        ZStack {
-            AtmosphericBackground()
-
-            contentView
-                .transition(.opacity.combined(with: .scale(scale: 0.98)))
-        }
-        .animation(.easeInOut(duration: 0.35), value: appState.currentScreen)
-        .background(TransparentWindow())
-    }
-
-    @ViewBuilder
-    private var contentView: some View {
-        switch appState.currentScreen {
-        case .userCreation:  UserCreationView()
-        case .worldCreation: WorldCreationView()
-        case .genrePicker:   GenrePickerView()
-        case .radioStation:  RadioStationView()
-        case .main:          MainAppView()
-        }
+        .ignoresSafeArea()
     }
 }

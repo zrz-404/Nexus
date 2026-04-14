@@ -1,8 +1,8 @@
 //
 //  SharedComponents.swift
-//  Nexus
+//  Nexus - Phase 5
 //
-//  Created by José Roseiro on 09/04/2026.
+//  Shared UI components
 //
 
 import SwiftUI
@@ -102,5 +102,56 @@ struct CanvasGrid: View {
             }
         }
         .ignoresSafeArea()
+    }
+}
+
+// MARK: - Atmospheric Background
+struct AtmosphericBackground: View {
+    let accent: Color
+    let variant: ThemeVariant
+    
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                // Base gradient
+                LinearGradient(
+                    colors: [
+                        Color.black,
+                        Color.black.opacity(0.9),
+                        accent.opacity(0.05)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                
+                // Animated orbs
+                OrbView(color: accent, size: 300, x: geo.size.width * 0.2, y: geo.size.height * 0.3)
+                OrbView(color: accent, size: 400, x: geo.size.width * 0.8, y: geo.size.height * 0.7)
+                    .blur(radius: 60)
+            }
+        }
+        .background(Color.black)
+    }
+}
+
+struct OrbView: View {
+    let color: Color
+    let size: CGFloat
+    let x: CGFloat
+    let y: CGFloat
+    
+    @State private var offset: CGFloat = 0
+    
+    var body: some View {
+        Circle()
+            .fill(color.opacity(0.15))
+            .frame(width: size, height: size)
+            .position(x: x, y: y + offset)
+            .blur(radius: 40)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
+                    offset = 30
+                }
+            }
     }
 }
