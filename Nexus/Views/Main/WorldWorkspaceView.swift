@@ -2,7 +2,7 @@ import SwiftUI
 import PhotosUI
 import UniformTypeIdentifiers
 
-// MARK: - Root
+// MARK: - Root workspace
 struct WorldWorkspaceView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
@@ -11,7 +11,6 @@ struct WorldWorkspaceView: View {
         GeometryReader { geo in
             ZStack {
                 Color.clear
-
                 if appState.openDocuments.isEmpty {
                     EmptyWorkspace()
                 } else {
@@ -25,7 +24,7 @@ struct WorldWorkspaceView: View {
             .dropDestination(for: String.self) { items, _ in
                 guard let idStr = items.first,
                       let id = UUID(uuidString: idStr),
-                      let doc = appState.documents.first(where: { $0.id == id })
+                      let doc = appState.currentDocuments.first(where: { $0.id == id })
                 else { return false }
                 DispatchQueue.main.async { appState.openDocument(doc) }
                 return true
@@ -41,9 +40,9 @@ struct EmptyWorkspace: View {
     private var theme: AppTheme { themeManager.current }
 
     let items: [(String, String, DocumentType)] = [
-        ("rectangle.on.rectangle", "Card", .card),
-        ("square.grid.2x2", "Canvas", .canvas),
-        ("circle.hexagongrid", "Mind Map", .mindmap),
+        ("rectangle.on.rectangle", "Card",        .card),
+        ("square.grid.2x2",        "Canvas",      .canvas),
+        ("circle.hexagongrid",     "Mind Map",    .mindmap),
         ("point.3.connected.trianglepath.dotted", "Connections", .connections),
     ]
 
@@ -78,18 +77,14 @@ struct QuickCreateTile: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(hovered ? theme.panel : theme.panelSoft)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .stroke(theme.border, lineWidth: 1)
-                        )
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(theme.border, lineWidth: 1))
                     Image(systemName: icon)
                         .font(.system(size: 20, weight: .light))
                         .foregroundColor(theme.textPrimary)
                 }
                 .frame(width: 68, height: 68)
-                Text(label)
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundColor(theme.textSecondary)
+                Text(label).font(.system(size: 10, weight: .medium)).foregroundColor(theme.textSecondary)
             }
         }
         .buttonStyle(.plain)
@@ -100,9 +95,7 @@ struct QuickCreateTile: View {
 }
 
 // MARK: - Snap zone
-enum SnapZone: Equatable {
-    case left, right, topFull, topLeft, topRight
-}
+enum SnapZone: Equatable { case left, right, topFull, topLeft, topRight }
 
 // MARK: - Floating document window
 struct FloatingDocumentWindow: View {
@@ -127,19 +120,14 @@ struct FloatingDocumentWindow: View {
         appState.windowState(for: document.id, workspaceSize: workspaceSize)
     }
 
-    // Live position = stored center + current drag translation
     private var liveCenter: CGPoint {
-        CGPoint(
-            x: stored.position.x + dragTranslation.width,
-            y: stored.position.y + dragTranslation.height
-        )
+        CGPoint(x: stored.position.x + dragTranslation.width,
+                y: stored.position.y + dragTranslation.height)
     }
 
     private var liveSize: CGSize {
-        CGSize(
-            width: max(360, stored.size.width + resizeTranslation.width),
-            height: max(280, stored.size.height + resizeTranslation.height)
-        )
+        CGSize(width:  max(360, stored.size.width  + resizeTranslation.width),
+               height: max(280, stored.size.height + resizeTranslation.height))
     }
 
     var body: some View {
@@ -148,80 +136,50 @@ struct FloatingDocumentWindow: View {
             documentContent
         }
         .frame(width: liveSize.width, height: liveSize.height)
-        .background(
-            GlassBackground(
-                tint: theme.glassTint,
-                opacity: theme.glassOpacity + 0.08,
-                brightnessBoost: theme.brightnessBoost
-            )
-        )
+        .background(GlassBackground(tint: theme.glassTint,
+                                    opacity: theme.glassOpacity + 0.08,
+                                    brightnessBoost: theme.brightnessBoost))
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(
-                    isDragging ? theme.accent.opacity(0.6) : theme.border,
-                    lineWidth: isDragging ? 1.5 : 1
-                )
-        )
-        .shadow(
-            color: .black.opacity(isDragging ? 0.45 : 0.22),
-            radius: isDragging ? 44 : 18,
-            x: 0, y: isDragging ? 18 : 6
-        )
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .stroke(isDragging ? theme.accent.opacity(0.6) : theme.border,
+                    lineWidth: isDragging ? 1.5 : 1))
+        .shadow(color: .black.opacity(isDragging ? 0.45 : 0.22),
+                radius: isDragging ? 44 : 18, x: 0, y: isDragging ? 18 : 6)
         .scaleEffect(isDragging ? 1.014 : 1, anchor: .center)
         .animation(.spring(response: 0.18, dampingFraction: 0.88), value: isDragging)
         .overlay(alignment: .bottomTrailing) { resizeHandle }
-        // .position() in SwiftUI sets the CENTER of the view
         .position(liveCenter)
         .zIndex(isDragging ? 999 : 1)
-        // Snap preview overlay — drawn as a sibling, not child
     }
 
     // MARK: Title bar
     private var titleBar: some View {
         HStack(spacing: 8) {
-            // macOS-style traffic lights
             HStack(spacing: 5) {
                 windowDot(color: Color(hex: "#FF5F57")) {
                     withAnimation(.spring(response: 0.22)) { appState.closeDocument(document) }
                 }
-                windowDot(color: Color(hex: "#FFBD2E")) { /* minimise — future */ }
+                windowDot(color: Color(hex: "#FFBD2E")) {}
                 windowDot(color: Color(hex: "#27C840")) { toggleMaximize() }
             }
             .padding(.leading, 2)
 
-            Image(systemName: docType.icon)
-                .font(.system(size: 10))
-                .foregroundColor(theme.textSecondary)
-
-            Text(document.title)
-                .font(.system(size: 11, weight: .medium))
-                .foregroundColor(theme.textPrimary)
-                .lineLimit(1)
-
+            Image(systemName: docType.icon).font(.system(size: 10)).foregroundColor(theme.textSecondary)
+            Text(document.title).font(.system(size: 11, weight: .medium))
+                .foregroundColor(theme.textPrimary).lineLimit(1)
             Spacer()
 
-            // Snap target hint when dragging
-            if isDragging, let zone = snapPreview {
-                snapBadge(zone)
-            }
+            if isDragging, let zone = snapPreview { snapBadge(zone) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
+        .padding(.horizontal, 10).padding(.vertical, 9)
         .background(theme.panel)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.border).frame(height: 1)
-        }
-        .onHover { over in
-            if over { NSCursor.openHand.push() } else { NSCursor.pop() }
-        }
+        .overlay(alignment: .bottom) { Rectangle().fill(theme.border).frame(height: 1) }
+        .onHover { over in if over { NSCursor.openHand.push() } else { NSCursor.pop() } }
         .gesture(dragGesture)
     }
 
     private func windowDot(color: Color, action: @escaping () -> Void) -> some View {
-        Circle()
-            .fill(color)
-            .frame(width: 11, height: 11)
+        Circle().fill(color).frame(width: 11, height: 11)
             .overlay(Circle().stroke(Color.black.opacity(0.1), lineWidth: 0.5))
             .onTapGesture(perform: action)
     }
@@ -230,116 +188,70 @@ struct FloatingDocumentWindow: View {
     private func snapBadge(_ zone: SnapZone) -> some View {
         let label: String = {
             switch zone {
-            case .left:    return "← Left half"
-            case .right:   return "Right half →"
+            case .left:    return "← Left"
+            case .right:   return "Right →"
             case .topFull: return "⬆ Full"
             case .topLeft: return "↖ Quarter"
             case .topRight: return "↗ Quarter"
             }
         }()
-        Text(label)
-            .font(.system(size: 9, weight: .medium))
-            .foregroundColor(theme.accent)
+        Text(label).font(.system(size: 9, weight: .medium)).foregroundColor(theme.accent)
             .padding(.horizontal, 6).padding(.vertical, 3)
-            .background(
-                Capsule()
-                    .fill(theme.accentSoft)
-                    .overlay(Capsule().stroke(theme.accent.opacity(0.3), lineWidth: 1))
-            )
-            .transition(.opacity.combined(with: .scale(scale: 0.9)))
-            .animation(.easeInOut(duration: 0.12), value: zone)
+            .background(Capsule().fill(theme.accentSoft)
+                .overlay(Capsule().stroke(theme.accent.opacity(0.3), lineWidth: 1)))
     }
 
-    // MARK: Drag gesture — uses .named("workspace") coordinate space
     private var dragGesture: some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .named("workspace"))
             .onChanged { value in
                 if !isDragging { isDragging = true }
-
-                // If maximized, restore to original size and re-anchor the drag
-                if isMaximized {
-                    isMaximized = false
-                }
-
-                // Translation is from drag start, not stored position
-                // value.startLocation is where the drag began in workspace coords
-                // value.location is current finger/mouse position
-                // We want: new center = value.location adjusted by where the
-                // finger was relative to the window center when drag started.
-                let startOffset = CGSize(
-                    width: value.startLocation.x - stored.position.x,
-                    height: value.startLocation.y - stored.position.y
-                )
-                dragTranslation = CGSize(
-                    width: value.translation.width,
-                    height: value.translation.height
-                )
-
-                let _ = startOffset // kept for reference; live center calculation handles this correctly
-
+                if isMaximized { isMaximized = false }
+                dragTranslation = value.translation
                 snapPreview = detectSnap(at: liveCenter)
             }
             .onEnded { value in
                 isDragging = false
-                let finalCenter = CGPoint(
-                    x: stored.position.x + value.translation.width,
-                    y: stored.position.y + value.translation.height
-                )
+                let finalCenter = CGPoint(x: stored.position.x + value.translation.width,
+                                         y: stored.position.y + value.translation.height)
                 dragTranslation = .zero
-                let zone = snapPreview
-                snapPreview = nil
-
-                if let zone = zone {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) {
-                        applySnap(zone)
-                    }
+                let zone = snapPreview; snapPreview = nil
+                if let zone {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.82)) { applySnap(zone) }
                 } else {
-                    let clamped = clampedCenter(finalCenter, size: stored.size)
-                    appState.updateWindowPosition(for: document.id, position: clamped)
+                    appState.updateWindowPosition(for: document.id,
+                                                  position: clampedCenter(finalCenter, size: stored.size))
                 }
             }
     }
 
-    // MARK: Resize handle
     private var resizeHandle: some View {
-        ZStack {
-            VStack(spacing: 2) {
-                HStack(spacing: 2) { gripDot(); gripDot(); gripDot() }
-                HStack(spacing: 2) { gripDot(); gripDot(); gripDot() }
-                HStack(spacing: 2) { gripDot(); gripDot(); gripDot() }
-            }
+        VStack(spacing: 2) {
+            HStack(spacing: 2) { gripDot(); gripDot(); gripDot() }
+            HStack(spacing: 2) { gripDot(); gripDot(); gripDot() }
+            HStack(spacing: 2) { gripDot(); gripDot(); gripDot() }
         }
-        .padding(8)
-        .contentShape(Rectangle())
-        .onHover { over in
-//            if over { NSCursor.resizeUpLeftDownRight.push() } else { NSCursor.pop() }
-        }
-        .gesture(
-            DragGesture(minimumDistance: 1)
-                .onChanged { v in
-                    isResizing = true
-                    resizeTranslation = v.translation
-                }
-                .onEnded { _ in
-                    isResizing = false
-                    appState.updateWindowSize(for: document.id, size: liveSize)
-                    resizeTranslation = .zero
-                }
-        )
+        .padding(8).contentShape(Rectangle())
+        .onHover { over in if over { NSCursor.resizeUpLeftDownRight.push() } else { NSCursor.pop() } }
+        .gesture(DragGesture(minimumDistance: 1)
+            .onChanged { v in isResizing = true; resizeTranslation = v.translation }
+            .onEnded { _ in
+                isResizing = false
+                appState.updateWindowSize(for: document.id, size: liveSize)
+                resizeTranslation = .zero
+            })
     }
 
     private func gripDot() -> some View {
         Circle().fill(theme.textTertiary.opacity(0.5)).frame(width: 2, height: 2)
     }
 
-    // MARK: Document content
     @ViewBuilder
     private var documentContent: some View {
         Group {
             switch docType {
             case .card:        CardDocumentView(document: document)
             case .canvas:      FreeformCanvasView(canvasDocumentId: document.id)
-            case .mindmap:     CanvasPlaceholder(label: "Mind Map — click to add nodes")
+            case .mindmap:     MindMapView(document: document)       // ← now real
             case .connections: ConnectionsGraphView()
             case .note:        NoteDocumentView(document: document)
             }
@@ -347,7 +259,6 @@ struct FloatingDocumentWindow: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    // MARK: Maximize
     private func toggleMaximize() {
         if isMaximized {
             isMaximized = false
@@ -358,23 +269,16 @@ struct FloatingDocumentWindow: View {
                 }
             }
         } else {
-            preMaximizeState = stored
-            isMaximized = true
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) {
-                applySnap(.topFull)
-            }
+            preMaximizeState = stored; isMaximized = true
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.85)) { applySnap(.topFull) }
         }
     }
 
-    // MARK: Snap logic
     private func detectSnap(at center: CGPoint) -> SnapZone? {
-        let edgeH: CGFloat = 64
-        let edgeV: CGFloat = 48
-
-        let nearLeft  = center.x < edgeH
-        let nearRight = center.x > workspaceSize.width - edgeH
-        let nearTop   = center.y < edgeV
-
+        let eH: CGFloat = 64, eV: CGFloat = 48
+        let nearLeft  = center.x < eH
+        let nearRight = center.x > workspaceSize.width  - eH
+        let nearTop   = center.y < eV
         if nearTop && nearLeft  { return .topLeft  }
         if nearTop && nearRight { return .topRight }
         if nearTop              { return .topFull  }
@@ -384,20 +288,13 @@ struct FloatingDocumentWindow: View {
     }
 
     private func rectForSnap(_ zone: SnapZone) -> CGRect {
-        let w = workspaceSize.width
-        let h = workspaceSize.height
-        let p: CGFloat = 4
+        let w = workspaceSize.width, h = workspaceSize.height, p: CGFloat = 4
         switch zone {
-        case .topFull:
-            return CGRect(x: p, y: p, width: w - p*2, height: h - p*2)
-        case .left:
-            return CGRect(x: p, y: p, width: w/2 - p*1.5, height: h - p*2)
-        case .right:
-            return CGRect(x: w/2 + p*0.5, y: p, width: w/2 - p*1.5, height: h - p*2)
-        case .topLeft:
-            return CGRect(x: p, y: p, width: w/2 - p*1.5, height: h/2 - p*1.5)
-        case .topRight:
-            return CGRect(x: w/2 + p*0.5, y: p, width: w/2 - p*1.5, height: h/2 - p*1.5)
+        case .topFull:  return CGRect(x: p,            y: p, width: w - p*2,       height: h - p*2)
+        case .left:     return CGRect(x: p,            y: p, width: w/2 - p*1.5,   height: h - p*2)
+        case .right:    return CGRect(x: w/2 + p*0.5,  y: p, width: w/2 - p*1.5,   height: h - p*2)
+        case .topLeft:  return CGRect(x: p,            y: p, width: w/2 - p*1.5,   height: h/2 - p*1.5)
+        case .topRight: return CGRect(x: w/2 + p*0.5,  y: p, width: w/2 - p*1.5,   height: h/2 - p*1.5)
         }
     }
 
@@ -408,31 +305,23 @@ struct FloatingDocumentWindow: View {
     }
 
     private func clampedCenter(_ center: CGPoint, size: CGSize) -> CGPoint {
-        let halfW = size.width / 2
-        let halfH = size.height / 2
-        return CGPoint(
-            x: min(max(center.x, halfW + 4), workspaceSize.width  - halfW - 4),
-            y: min(max(center.y, halfH + 4), workspaceSize.height - halfH - 4)
-        )
+        CGPoint(x: min(max(center.x, size.width/2 + 4), workspaceSize.width  - size.width/2  - 4),
+                y: min(max(center.y, size.height/2 + 4), workspaceSize.height - size.height/2 - 4))
     }
 }
 
-// MARK: - Canvas placeholder
+// MARK: - Canvas placeholder (for canvas doc type only)
 struct CanvasPlaceholder: View {
     @EnvironmentObject var themeManager: ThemeManager
     let label: String
     private var theme: AppTheme { themeManager.current }
-
     var body: some View {
         ZStack {
             CanvasGrid()
             VStack(spacing: 8) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 28, weight: .ultraLight))
+                Image(systemName: "square.grid.2x2").font(.system(size: 28, weight: .ultraLight))
                     .foregroundColor(theme.textTertiary)
-                Text(label)
-                    .font(.system(size: 11))
-                    .foregroundColor(theme.textTertiary)
+                Text(label).font(.system(size: 11)).foregroundColor(theme.textTertiary)
             }
         }
     }
@@ -453,30 +342,29 @@ struct NoteDocumentView: View {
 
     var body: some View {
         TextEditor(text: $text)
-            .font(.system(size: 14))
-            .foregroundColor(theme.textPrimary)
-            .scrollContentBackground(.hidden)
-            .background(Color.clear)
+            .font(.system(size: 14)).foregroundColor(theme.textPrimary)
+            .scrollContentBackground(.hidden).background(Color.clear)
             .padding(20)
-            .onChange(of: text) {
-                appState.updateDocumentContent(id: document.id, content: text)
-            }
+            .onChange(of: text) { appState.updateDocumentContent(id: document.id, content: text) }
     }
 }
 
-// MARK: - Card document
+// MARK: - Card document (with AI Generate)
 struct CardDocumentView: View {
     @EnvironmentObject var appState: AppState
     @EnvironmentObject var themeManager: ThemeManager
     let document: StudyDocument
+
     @State private var title: String
     @State private var blocks: [CardBlock] = []
     @State private var tags: [String] = []
     @State private var showBlockPicker = false
     @State private var coverImage: NSImage? = nil
     @State private var photosItem: PhotosPickerItem? = nil
+    @State private var showAISheet = false
 
     private var theme: AppTheme { themeManager.current }
+    private var genre: String { appState.currentWorld?.genre ?? "" }
 
     init(document: StudyDocument) {
         self.document = document
@@ -490,26 +378,44 @@ struct CardDocumentView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
+                // Cover
                 ZStack(alignment: .bottomLeading) {
                     if let img = coverImage {
-                        Image(nsImage: img).resizable().scaledToFill()
-                            .frame(height: 130).clipped()
+                        Image(nsImage: img).resizable().scaledToFill().frame(height: 130).clipped()
                     } else {
                         Rectangle().fill(theme.panelStrong).frame(height: 130)
                     }
-                    PhotosPicker(selection: $photosItem, matching: .images) {
-                        Label(coverImage == nil ? "Add Cover" : "Change Cover", systemImage: "photo")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundColor(theme.textSecondary)
+                    HStack(spacing: 8) {
+                        PhotosPicker(selection: $photosItem, matching: .images) {
+                            Label(coverImage == nil ? "Add Cover" : "Change Cover", systemImage: "photo")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(theme.textSecondary)
+                                .padding(.horizontal, 8).padding(.vertical, 5)
+                                .background(Capsule().fill(theme.panelStrong))
+                        }
+                        .buttonStyle(.plain)
+
+                        // AI generate button
+                        Button {
+                            showAISheet = true
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "sparkles").font(.system(size: 9))
+                                Text("Generate").font(.system(size: 9, weight: .medium))
+                            }
+                            .foregroundColor(theme.accent)
                             .padding(.horizontal, 8).padding(.vertical, 5)
-                            .background(Capsule().fill(theme.panelStrong))
+                            .background(Capsule().fill(theme.accentSoft)
+                                .overlay(Capsule().stroke(theme.accent.opacity(0.3), lineWidth: 1)))
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain).padding(10)
+                    .padding(10)
 
                     if coverImage != nil {
                         Button { withAnimation { coverImage = nil } } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .font(.system(size: 14)).foregroundColor(theme.textSecondary)
+                            Image(systemName: "xmark.circle.fill").font(.system(size: 14))
+                                .foregroundColor(theme.textSecondary)
                         }
                         .buttonStyle(.plain).padding(10)
                         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -520,18 +426,15 @@ struct CardDocumentView: View {
 
                 VStack(alignment: .leading, spacing: 14) {
                     TextField("Untitled", text: $title)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 21, weight: .semibold))
-                        .foregroundColor(theme.textPrimary)
-                        .onSubmit { persist() }
+                        .textFieldStyle(.plain).font(.system(size: 21, weight: .semibold))
+                        .foregroundColor(theme.textPrimary).onSubmit { persist() }
 
                     TagsRow(tags: $tags)
                     Divider().overlay(theme.border)
 
                     if blocks.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("Get started with")
-                                .font(.system(size: 10)).foregroundColor(theme.textTertiary)
+                            Text("Get started with").font(.system(size: 10)).foregroundColor(theme.textTertiary)
                             HStack(spacing: 6) {
                                 BlockChip("Text", "text.alignleft") { addBlock(.text) }
                                 BlockChip("Heading", "textformat.size") { addBlock(.heading) }
@@ -567,6 +470,14 @@ struct CardDocumentView: View {
             }
         }
         .onChange(of: title) { persist() }
+        .sheet(isPresented: $showAISheet) {
+            AIGenerateSheet(genre: genre) { generated in
+                title = generated.title
+                blocks = generated.blocks
+                persist()
+            }
+            .environmentObject(themeManager)
+        }
     }
 
     private func loadCoverImage() {
@@ -579,10 +490,12 @@ struct CardDocumentView: View {
             }
         }
     }
+
     private func addBlock(_ type: CardBlockType) { blocks.append(CardBlock(type: type)); persist() }
     private func deleteBlock(_ id: UUID) { blocks.removeAll { $0.id == id }; persist() }
     private func persist() {
-        if let data = try? JSONEncoder().encode(blocks), let json = String(data: data, encoding: .utf8) {
+        if let data = try? JSONEncoder().encode(blocks),
+           let json = String(data: data, encoding: .utf8) {
             appState.updateDocumentContent(id: document.id, title: title, content: json)
         }
     }
@@ -598,22 +511,18 @@ struct CardBlockRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 8) {
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: 8))
+            Image(systemName: "line.3.horizontal").font(.system(size: 8))
                 .foregroundColor(theme.textTertiary.opacity(hovered ? 1 : 0))
                 .frame(width: 12).padding(.top, 8)
             Group {
                 switch block.type {
                 case .text:
-                    TextEditor(text: $block.content)
-                        .font(.system(size: 13)).foregroundColor(theme.textPrimary)
-                        .scrollContentBackground(.hidden).background(Color.clear)
-                        .frame(minHeight: 36)
-                case .heading:
-                    TextField("Heading", text: $block.content)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 16, weight: .semibold))
+                    TextEditor(text: $block.content).font(.system(size: 13))
                         .foregroundColor(theme.textPrimary)
+                        .scrollContentBackground(.hidden).background(Color.clear).frame(minHeight: 36)
+                case .heading:
+                    TextField("Heading", text: $block.content).textFieldStyle(.plain)
+                        .font(.system(size: 16, weight: .semibold)).foregroundColor(theme.textPrimary)
                 case .divider:
                     Divider().overlay(theme.border).padding(.vertical, 8)
                 }
@@ -622,17 +531,14 @@ struct CardBlockRow: View {
             if hovered && block.type != .divider {
                 Button(action: onDelete) {
                     Image(systemName: "xmark").font(.system(size: 8))
-                        .foregroundColor(theme.textSecondary)
-                        .frame(width: 16, height: 16)
+                        .foregroundColor(theme.textSecondary).frame(width: 16, height: 16)
                         .background(Circle().fill(theme.panelSoft))
                 }
                 .buttonStyle(.plain).padding(.top, 6)
             }
         }
         .padding(.vertical, 2).contentShape(Rectangle())
-        .onHover { isHovered in
-            withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered }
-        }
+        .onHover { isHovered in withAnimation(.easeInOut(duration: 0.1)) { hovered = isHovered } }
     }
 }
 
@@ -642,20 +548,16 @@ struct BlockChip: View {
     @State private var hovered = false
     private var theme: AppTheme { themeManager.current }
     init(_ l: String, _ i: String, action: @escaping () -> Void) { label = l; icon = i; self.action = action }
-
     var body: some View {
         Button(action: action) {
             HStack(spacing: 4) {
                 Image(systemName: icon).font(.system(size: 9))
                 Text(label).font(.system(size: 10))
             }
-            .foregroundColor(theme.textSecondary)
-            .padding(.horizontal, 9).padding(.vertical, 5)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(hovered ? theme.panel : theme.panelSoft)
-                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.border, lineWidth: 1))
-            )
+            .foregroundColor(theme.textSecondary).padding(.horizontal, 9).padding(.vertical, 5)
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(hovered ? theme.panel : theme.panelSoft)
+                .overlay(RoundedRectangle(cornerRadius: 6).stroke(theme.border, lineWidth: 1)))
         }
         .buttonStyle(.plain).onHover { hovered = $0 }
     }

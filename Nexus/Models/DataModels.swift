@@ -1,12 +1,3 @@
-//
-//  DataModels.swift
-//  Nexus
-//
-//  Created by José Roseiro on 09/04/2026.
-//
-
-import SwiftUI
-
 import SwiftUI
 
 // MARK: - Navigation
@@ -35,10 +26,11 @@ struct StudyWorld: Codable, Identifiable, Equatable {
     var createdAt: Date = Date()
 }
 
-// MARK: - Folder
+// MARK: - Folder (world-scoped)
 struct StudyFolder: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
     var name: String
+    var worldId: UUID
     var parentId: UUID? = nil
     var isExpanded: Bool = true
     var createdAt: Date = Date()
@@ -74,7 +66,7 @@ enum StudyGenre: String, CaseIterable {
     }
 }
 
-// MARK: - Documents
+// MARK: - Documents (world-scoped)
 enum DocumentType: String, CaseIterable, Identifiable {
     case card = "Card", canvas = "Canvas", mindmap = "Mind Map"
     case connections = "Connections", note = "Note"
@@ -92,13 +84,69 @@ enum DocumentType: String, CaseIterable, Identifiable {
 
 struct StudyDocument: Identifiable, Codable, Equatable {
     var id: UUID = UUID()
+    var worldId: UUID
     var title: String
     var type: String
-    var parentId: UUID? = nil        // parent folder id
-    var folderId: UUID? = nil        // explicit folder membership
+    var folderId: UUID? = nil
     var content: String = ""
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
+}
+
+// MARK: - Echo / SM-2 spaced repetition
+enum EchoRating: Int, Codable, CaseIterable {
+    case again = 0, hard = 1, good = 2, easy = 3
+    var label: String {
+        switch self {
+        case .again: return "Again"
+        case .hard:  return "Hard"
+        case .good:  return "Good"
+        case .easy:  return "Easy"
+        }
+    }
+    var color: Color {
+        switch self {
+        case .again: return Color(hex: "#E24B4A")
+        case .hard:  return Color(hex: "#EF9F27")
+        case .good:  return Color(hex: "#1D9E75")
+        case .easy:  return Color(hex: "#378ADD")
+        }
+    }
+}
+
+struct EchoReview: Identifiable, Codable {
+    var id: UUID = UUID()
+    var documentId: UUID
+    var worldId: UUID
+    // SM-2 fields
+    var interval: Int = 1        // days until next review
+    var easeFactor: Double = 2.5
+    var repetitions: Int = 0
+    var nextReview: Date = Date()
+    var lastReview: Date? = nil
+}
+
+// SM-2 algorithm
+extension EchoReview {
+    mutating func apply(rating: EchoRating) {
+        let q = rating.rawValue
+        lastReview = Date()
+        if q < 2 {
+            // Failed — reset
+            repetitions = 0
+            interval = 1
+        } else {
+            switch repetitions {
+            case 0: interval = 1
+            case 1: interval = 6
+            default: interval = Int((Double(interval) * easeFactor).rounded())
+            }
+            repetitions += 1
+        }
+        // Update ease factor (minimum 1.3)
+        easeFactor = max(1.3, easeFactor + 0.1 - Double(3 - q) * (0.08 + Double(3 - q) * 0.02))
+        nextReview = Calendar.current.date(byAdding: .day, value: interval, to: Date()) ?? Date()
+    }
 }
 
 // MARK: - Radio
@@ -107,15 +155,21 @@ struct RadioStation: Identifiable {
     let name: String
     let icon: String
     let description: String
+    let streamURL: String
 }
 
 let defaultStations: [RadioStation] = [
-    RadioStation(name: "Fireplace",      icon: "flame",              description: "Cozy crackling fire"),
-    RadioStation(name: "Skyrim",         icon: "mountain.2",         description: "Nordic adventure"),
-    RadioStation(name: "Lofi Study",     icon: "headphones",         description: "Chill hip-hop beats"),
-    RadioStation(name: "Lord of Rings",  icon: "leaf",               description: "Epic orchestral"),
-    RadioStation(name: "Harry Potter",   icon: "wand.and.stars",     description: "Magical wonder"),
-    RadioStation(name: "Rain",           icon: "cloud.rain",         description: "Gentle rainfall"),
-    RadioStation(name: "Café",           icon: "cup.and.saucer",     description: "Coffee shop ambience"),
-    RadioStation(name: "Deep Space",     icon: "sparkles",           description: "Ambient cosmos"),
+    RadioStation(name: "Fireplace",     icon: "flame",          description: "Cozy crackling fire",
+                 streamURL: "https://assets.mixkit.co/sfx/preview/mixkit-fireplace-crackling-1330.mp3"),
+    RadioStation(name: "Rain",          icon: "cloud.rain",     description: "Gentle rainfall",
+                 streamURL: "https://assets.mixkit.co/sfx/preview/mixkit-rain-and-thunder-ambiance-1291.mp3"),
+    RadioStation(name: "Lofi Study",    icon: "headphones",     description: "Chill hip-hop beats",
+                 streamURL: "https://stream.laut.fm/lofi"),
+    RadioStation(name: "Deep Space",    icon: "sparkles",       description: "Ambient cosmos",
+                 streamURL: "https://somafm.com/deepspaceone130.pls"),
+    RadioStation(name: "Café",          icon: "cup.and.saucer", description: "Coffee shop ambience",
+                 streamURL: "https://stream.laut.fm/cafe-del-mar-chillout-mix"),
+    RadioStation(name: "Skyrim",        icon: "mountain.2",     description: "Nordic adventure",      streamURL: ""),
+    RadioStation(name: "Lord of Rings", icon: "leaf",           description: "Epic orchestral",       streamURL: ""),
+    RadioStation(name: "Harry Potter",  icon: "wand.and.stars", description: "Magical wonder",        streamURL: ""),
 ]
