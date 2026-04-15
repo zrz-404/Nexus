@@ -242,27 +242,30 @@ struct HomeView: View {
     }
     
     private var statsSection: some View {
-        HStack(spacing: 16) {
+        let worldId = appState.currentWorld?.id
+        let flashcardCount = appState.echoCards.filter { card in
+            appState.documents.first { $0.id == card.documentId }?.worldId == worldId
+        }.count
+
+        return HStack(spacing: 16) {
             StatCard(
                 icon: "doc.text",
                 value: "\(appState.currentWorldDocuments.count)",
                 label: "Documents"
             )
-            
+
             StatCard(
                 icon: "rectangle.on.rectangle",
-                value: "\(appState.echoCards.filter { card in
-                    appState.documents.first { $0.id == card.documentId }?.worldId == appState.currentWorld?.id
-                }.count)",
+                value: "\(flashcardCount)",
                 label: "Flashcards"
             )
-            
+
             StatCard(
                 icon: "waveform",
                 value: "\(appState.dueEchoCards.count)",
                 label: "Due for Review"
             )
-            
+
             StatCard(
                 icon: "flame.fill",
                 value: "\(appState.echoStats.streakDays)",

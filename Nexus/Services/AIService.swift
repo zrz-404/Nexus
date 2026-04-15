@@ -34,7 +34,7 @@ enum AIServiceError: Error, Equatable {
     }
 }
 
-enum AIGenerationState: Equatable {
+enum AIGenerationState: Codable, Equatable {
     case idle
     case generating
     case success(cards: [AIGeneratedCard])

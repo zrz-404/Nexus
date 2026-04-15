@@ -1,338 +1,199 @@
-//
-//  RadioPlayerManager.swift
-//  Nexus - Phase 5
-//
-//  Enhanced radio with error handling, playlist fallback, and loading states
-//
-
 import Foundation
 import AVFoundation
 import Combine
 
-class RadioPlayerManager: ObservableObject {
+// MARK: - Playback state
+enum RadioPlaybackState: Equatable {
+    case idle
+    case loading
+    case playing
+    case paused
+    case error(String)
+
+    var isActive: Bool {
+        switch self { case .playing, .loading: return true; default: return false }
+    }
+}
+
+// MARK: - Radio player manager
+final class RadioPlayerManager: NSObject, ObservableObject {
     static let shared = RadioPlayerManager()
-    
+
     @Published var currentStation: RadioStation? = nil
-    @Published var isPlaying: Bool = false
+    @Published var state: RadioPlaybackState = .idle
     @Published var volume: Float = 0.7
-    @Published var playerState: RadioPlayerState = .idle
-    @Published var errorMessage: String? = nil
-    @Published var isBuffering: Bool = false
-    
+
     private var player: AVPlayer?
     private var playerItem: AVPlayerItem?
+    private var statusObserver: AnyCancellable?
     private var timeObserver: Any?
-    private var cancellables = Set<AnyCancellable>()
-    
-    // Track retry attempts
     private var retryCount = 0
     private let maxRetries = 2
-    
-    // Stable, publicly accessible direct-file or HLS streams
-    private let streamURLs: [String: String] = [
-        "Fireplace":     "https://assets.mixkit.co/sfx/preview/mixkit-fireplace-crackling-1330.mp3",
-        "Rain":          "https://assets.mixkit.co/sfx/preview/mixkit-rain-and-thunder-ambiance-1291.mp3",
-        "Lofi Study":    "https://stream.laut.fm/lofi",
-        "Deep Space":    "https://somafm.com/deepspaceone130.pls",
-        "Café":          "https://stream.laut.fm/cafe-del-mar-chillout-mix",
-        // Orchestral / themed — no free public stream; placeholder for Spotify or local file
-        "Skyrim":        "",
-        "Lord of Rings": "",
-        "Harry Potter":  "",
-    ]
-    
-    // Fallback URLs for each station
-    private let fallbackURLs: [String: String] = [
-        "Lofi Study":    "https://streams.fluxfm.de/live/mp3-320/streams.fluxfm.de/",
-        "Deep Space":    "https://ice4.somafm.com/deepspaceone-128-mp3",
-    ]
-    
-    init() {
-        setupAudioSession()
-        loadSavedVolume()
+
+    // Convenience shims used by existing UI
+    var isPlaying: Bool { state == .playing }
+
+    private override init() {
+        super.init()
+        // Configure audio session for macOS background playback
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .default)
+        try? AVAudioSession.sharedInstance().setActive(true)
     }
-    
-    deinit {
-        removeTimeObserver()
-    }
-    
-    // MARK: - Setup
-    
-    private func setupAudioSession() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
-            try session.setActive(true)
-        } catch {
-            print("Failed to set up audio session: \(error)")
-        }
-    }
-    
-    private func loadSavedVolume() {
-        if let savedVolume = UserDefaults.standard.object(forKey: "nexus_radio_volume") as? Float {
-            volume = savedVolume
-        }
-    }
-    
-    // MARK: - Playback Control
-    
+
+    // MARK: - Public API
     func play(_ station: RadioStation) {
-        // If already playing this station, just ensure it's playing
-        if currentStation?.id == station.id && isPlaying {
+        guard !station.streamURL.isEmpty else {
+            state = .error("No stream available for \(station.name) yet.")
             return
         }
-        
-        // Reset state
         stop()
-        retryCount = 0
-        errorMessage = nil
-        
         currentStation = station
-        playerState = .loading
-        
-        // Check if station has a stream URL
-        guard let urlString = station.streamURL ?? streamURLs[station.name],
-              !urlString.isEmpty else {
-            handleError("No stream available for \(station.name). This station requires local files or Spotify integration.")
-            return
-        }
-        
-        // Handle playlist files (PLS, M3U)
-        if station.isPlaylist || urlString.hasSuffix(".pls") || urlString.hasSuffix(".m3u") {
-            loadPlaylistAndPlay(urlString: urlString, station: station)
-        } else {
-            loadAndPlay(urlString: urlString, station: station, isFallback: false)
+        retryCount = 0
+        startPlayback(urlString: station.streamURL)
+    }
+
+    func stop() {
+        tearDown()
+        state = .idle
+        currentStation = nil
+    }
+
+    func togglePlayPause() {
+        switch state {
+        case .playing:
+            player?.pause()
+            state = .paused
+        case .paused:
+            player?.play()
+            state = .playing
+        case .error:
+            // Retry the current station
+            if let station = currentStation { play(station) }
+        default:
+            break
         }
     }
-    
-    private func loadAndPlay(urlString: String, station: RadioStation, isFallback: Bool) {
-        guard let url = URL(string: urlString) else {
-            if !isFallback {
-                tryFallback(for: station)
-            } else {
-                handleError("Invalid stream URL")
-            }
+
+    func setVolume(_ v: Float) {
+        volume = v
+        player?.volume = v
+    }
+
+    // MARK: - Internal
+    private func startPlayback(urlString: String) {
+        state = .loading
+
+        // Handle .pls playlists
+        if urlString.hasSuffix(".pls") {
+            resolvePLS(urlString: urlString)
             return
         }
-        
+
+        guard let url = URL(string: urlString) else {
+            state = .error("Invalid stream URL")
+            return
+        }
+        setupPlayer(url: url)
+    }
+
+    private func setupPlayer(url: URL) {
+        tearDown()
+
         let item = AVPlayerItem(url: url)
         playerItem = item
-        
-        // Observe player item status
-        item.publisher(for: \.status)
-            .sink { [weak self] status in
-                self?.handlePlayerItemStatus(status, station: station, isFallback: isFallback)
-            }
-            .store(in: &cancellables)
-        
-        // Observe playback buffer
-        item.publisher(for: \.isPlaybackBufferEmpty)
-            .sink { [weak self] isEmpty in
-                self?.isBuffering = isEmpty
-            }
-            .store(in: &cancellables)
-        
-        // Observe errors
-        item.publisher(for: \.error)
-            .compactMap { $0 }
-            .sink { [weak self] error in
-                self?.handlePlaybackError(error, station: station, isFallback: isFallback)
-            }
-            .store(in: &cancellables)
-        
         player = AVPlayer(playerItem: item)
         player?.volume = volume
-        
-        // Add periodic time observer for playback monitoring
-        addTimeObserver()
-        
-        player?.play()
-        
-        // Update state after a short delay to allow buffer to fill
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            guard let self = self else { return }
-            if self.player?.rate ?? 0 > 0 {
-                self.isPlaying = true
-                self.playerState = .playing(station: station)
+
+        // Observe item status via Combine
+        statusObserver = item.publisher(for: \.status)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                guard let self else { return }
+                switch status {
+                case .readyToPlay:
+                    self.player?.play()
+                    self.state = .playing
+                case .failed:
+                    let msg = item.error?.localizedDescription ?? "Playback failed"
+                    self.handleError(msg)
+                default:
+                    break
+                }
             }
+
+        // Observe stall / playback ended
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemFailed),
+            name: .AVPlayerItemFailedToPlayToEndTime,
+            object: item
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(playerItemStalled),
+            name: AVPlayerItem.playbackStalledNotification,
+            object: item
+        )
+    }
+
+    @objc private func playerItemFailed(_ n: Notification) {
+        let err = (n.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error)?.localizedDescription
+        DispatchQueue.main.async { self.handleError(err ?? "Playback ended unexpectedly") }
+    }
+
+    @objc private func playerItemStalled(_ n: Notification) {
+        // Auto-rebuffer — AVPlayer usually recovers, but give it a nudge
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            guard let self, case .playing = self.state else { return }
+            self.player?.play()
         }
     }
-    
-    private func loadPlaylistAndPlay(urlString: String, station: RadioStation) {
-        guard let url = URL(string: urlString) else {
-            tryFallback(for: station)
-            return
+
+    private func handleError(_ message: String) {
+        if retryCount < maxRetries, let station = currentStation {
+            retryCount += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                self?.startPlayback(urlString: station.streamURL)
+            }
+        } else {
+            state = .error(message)
         }
-        
-        // Download and parse playlist
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+    }
+
+    /// Parse a SHOUTcast/Icecast .pls playlist and play the first valid URL
+    private func resolvePLS(urlString: String) {
+        guard let url = URL(string: urlString) else { state = .error("Invalid PLS URL"); return }
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, error in
+            guard let self else { return }
+            guard let data, error == nil,
+                  let text = String(data: data, encoding: .utf8) else {
+                DispatchQueue.main.async { self.state = .error("Could not fetch playlist") }
+                return
+            }
+            // Parse File1=... lines
+            let lines = text.components(separatedBy: "\n")
+            let streamURL = lines
+                .first(where: { $0.lowercased().hasPrefix("file") && $0.contains("=") })
+                .flatMap { $0.components(separatedBy: "=").dropFirst().first }
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+
             DispatchQueue.main.async {
-                guard let self = self else { return }
-                
-                if let error = error {
-                    print("Playlist download error: \(error)")
-                    self.tryFallback(for: station)
-                    return
-                }
-                
-                guard let data = data,
-                      let content = String(data: data, encoding: .utf8) else {
-                    self.tryFallback(for: station)
-                    return
-                }
-                
-                // Parse playlist to extract stream URL
-                if let streamURL = self.parsePlaylist(content) {
-                    self.loadAndPlay(urlString: streamURL, station: station, isFallback: false)
+                if let resolved = streamURL, !resolved.isEmpty {
+                    self.setupPlayer(url: URL(string: resolved)!)
                 } else {
-                    self.tryFallback(for: station)
+                    self.state = .error("No stream found in playlist")
                 }
             }
         }.resume()
     }
-    
-    private func parsePlaylist(_ content: String) -> String? {
-        let lines = content.components(separatedBy: .newlines)
-        
-        // Try PLS format first
-        for line in lines {
-            if line.lowercased().hasPrefix("file1=") {
-                return String(line.dropFirst(6)).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        
-        // Try M3U format
-        for line in lines {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if !trimmed.isEmpty && !trimmed.hasPrefix("#") {
-                return trimmed
-            }
-        }
-        
-        return nil
-    }
-    
-    private func handlePlayerItemStatus(_ status: AVPlayerItem.Status, station: RadioStation, isFallback: Bool) {
-        switch status {
-        case .readyToPlay:
-            isPlaying = true
-            playerState = .playing(station: station)
-            errorMessage = nil
-            retryCount = 0
-            
-        case .failed:
-            if !isFallback {
-                tryFallback(for: station)
-            } else {
-                handleError("Failed to load stream. The station may be offline.")
-            }
-            
-        case .unknown:
-            break
-            
-        @unknown default:
-            break
-        }
-    }
-    
-    private func handlePlaybackError(_ error: Error, station: RadioStation, isFallback: Bool) {
-        print("Playback error: \(error.localizedDescription)")
-        
-        if !isFallback {
-            tryFallback(for: station)
-        } else if retryCount < maxRetries {
-            retryCount += 1
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
-                self?.play(station)
-            }
-        } else {
-            handleError("Stream error: \(error.localizedDescription)")
-        }
-    }
-    
-    private func tryFallback(for station: RadioStation) {
-        if let fallback = station.fallbackURL ?? fallbackURLs[station.name],
-           !fallback.isEmpty {
-            print("Trying fallback URL for \(station.name)")
-            loadAndPlay(urlString: fallback, station: station, isFallback: true)
-        } else {
-            handleError("Unable to connect to \(station.name). No fallback available.")
-        }
-    }
-    
-    private func handleError(_ message: String) {
-        errorMessage = message
-        playerState = .error(message: message)
-        isPlaying = false
-        print("Radio error: \(message)")
-    }
-    
-    func stop() {
+
+    private func tearDown() {
+        statusObserver?.cancel()
+        statusObserver = nil
+        NotificationCenter.default.removeObserver(self, name: .AVPlayerItemFailedToPlayToEndTime, object: playerItem)
+        NotificationCenter.default.removeObserver(self, name: AVPlayerItem.playbackStalledNotification, object: playerItem)
         player?.pause()
         player = nil
         playerItem = nil
-        removeTimeObserver()
-        cancellables.removeAll()
-        isPlaying = false
-        isBuffering = false
-        playerState = .idle
-        errorMessage = nil
-        currentStation = nil
-    }
-    
-    func togglePlayPause() {
-        guard currentStation != nil else { return }
-        
-        if isPlaying {
-            player?.pause()
-            isPlaying = false
-        } else {
-            player?.play()
-            isPlaying = true
-        }
-    }
-    
-    func setVolume(_ v: Float) {
-        volume = max(0, min(1, v))
-        player?.volume = volume
-        UserDefaults.standard.set(volume, forKey: "nexus_radio_volume")
-    }
-    
-    // MARK: - Time Observer
-    
-    private func addTimeObserver() {
-        removeTimeObserver()
-        
-        let interval = CMTime(seconds: 1.0, preferredTimescale: CMTimeScale(NSEC_PER_SEC))
-        timeObserver = player?.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] _ in
-            // Monitor playback - could be used for UI updates
-        }
-    }
-    
-    private func removeTimeObserver() {
-        if let observer = timeObserver {
-            player?.removeTimeObserver(observer)
-            timeObserver = nil
-        }
-    }
-    
-    // MARK: - Station Info
-    
-    func canPlayStation(_ station: RadioStation) -> Bool {
-        return (station.streamURL ?? streamURLs[station.name]) != nil
-    }
-}
-
-// MARK: - Radio Station View Model
-extension RadioStation {
-    var displayStatus: String {
-        if streamURL == nil {
-            return "Coming Soon"
-        }
-        return "Live"
-    }
-    
-    var isPlayable: Bool {
-        return streamURL != nil
     }
 }
